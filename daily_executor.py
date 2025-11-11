@@ -162,12 +162,29 @@ class DailyExecutor:
                 else:
                     self.logger.error(f"[{step_name}] 标准错误:\n{result.stderr}")
 
-            # 检查返回码
-            if result.returncode == 0:
+            # 检查返回码和输出内容中的失败指示器
+            failure_indicators = [
+                "程序终止",
+                "无法获取",
+                "失败",
+                "错误",
+                "Exception",
+                "Error:",
+                "Traceback"
+            ]
+
+            # 检查输出中是否包含失败指示器
+            output_text = (result.stdout or "") + (result.stderr or "")
+            has_failure_indicator = any(indicator in output_text for indicator in failure_indicators)
+
+            if result.returncode == 0 and not has_failure_indicator:
                 self.logger.info(f"[{step_name}] 执行成功 (耗时: {duration:.2f}秒)")
                 return True
             else:
-                self.logger.error(f"[{step_name}] 执行失败 (返回码: {result.returncode})")
+                if result.returncode != 0:
+                    self.logger.error(f"[{step_name}] 执行失败 (返回码: {result.returncode})")
+                else:
+                    self.logger.error(f"[{step_name}] 执行失败 (检测到失败指示器)")
                 return False
 
         except subprocess.TimeoutExpired:

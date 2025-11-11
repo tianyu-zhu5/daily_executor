@@ -30,8 +30,8 @@
 
   "cci_update": {
     "description": "CCI底背离更新配置",
-    "local_db_path": "./data/cci_signals.db",
-    "data_dir": "../data/daily",
+    "local_db_path": "../CCI-Divergence/data/cci_signals.db",
+    "data_dir": "../CCI-Divergence/data/daily",
     "cci_period": 20,
     "pivot_window": 10,
     "divergence_validity_days": 20,
