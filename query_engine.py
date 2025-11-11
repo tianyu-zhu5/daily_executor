@@ -41,11 +41,36 @@ class QueryEngine:
             db_path: Path to CCI signals database (cci_signals.db)
             data_dir: Directory containing K-line CSV files
         """
+        import os
+
         self.db_path = Path(db_path)
         self.data_dir = Path(data_dir)
 
         if not self.db_path.exists():
-            raise FileNotFoundError(f"Database not found: {self.db_path}")
+            # Enhanced error message with diagnostic information
+            cwd = os.getcwd()
+            resolved_path = self.db_path.resolve()
+
+            # Try to suggest alternative paths
+            parent_dir = self.db_path.parent
+            suggestions = []
+            if parent_dir.exists():
+                suggestions = [f.name for f in parent_dir.iterdir() if f.is_file() and f.suffix == '.db']
+
+            error_msg = (
+                f"Database not found!\n"
+                f"  Current Working Directory: {cwd}\n"
+                f"  Relative path provided: {db_path}\n"
+                f"  Resolved absolute path: {resolved_path}\n"
+                f"  Path exists check: False\n"
+            )
+
+            if suggestions:
+                error_msg += f"  Found .db files in parent dir: {', '.join(suggestions)}\n"
+            else:
+                error_msg += f"  Parent directory exists: {parent_dir.exists()}\n"
+
+            raise FileNotFoundError(error_msg)
 
         logger.debug(f"QueryEngine initialized: db={self.db_path}, data={self.data_dir}")
 
