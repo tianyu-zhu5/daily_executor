@@ -20,9 +20,9 @@
 
   "signal_generation": {
     "description": "信号生成配置",
-    "db_path": "./data/cci_signals.db",
-    "data_dir": "../data/daily",
-    "stock_pool_file": "../CCI-Divergence/stock_pools/hs300.txt",
+    "db_path": "../CCI_Divergence/data/cci_signals.db",
+    "data_dir": "../CCI_Divergence/data/daily",
+    "stock_pool_file": "../CCI_Divergence/stock_pools/hs300.txt",
     "output_file": "./signals/daily_signals.csv",
     "min_confidence": 0.1,
     "use_next_day_open": true

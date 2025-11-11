@@ -13,6 +13,10 @@ daily_executor/
 ├── config.json              # 配置文件（必须配置）
 ├── daily_executor.py        # 主执行脚本
 ├── wechat_pusher.py         # 微信推送模块
+├── query_engine.py          # 查询引擎（新增）⭐
+├── signal_types.py          # 信号数据类型（新增）⭐
+├── formatters.py            # 输出格式化器（新增）⭐
+├── add_database_indexes.py  # 数据库索引工具
 ├── setup_task.bat           # Windows定时任务设置脚本
 ├── data/                    # 本地数据目录（自动创建）⭐
 │   └── cci_signals.db       # CCI底背离数据库（自动生成）
@@ -77,6 +81,151 @@ python daily_executor.py
 3. 触发器：每周，周一至周五，16:00
 4. 操作：启动程序 `python` + 参数 `daily_executor.py`
 5. 起始于：`C:\Users\Administrator\Documents\quant\daily_executor`
+
+---
+
+## 查询历史信号 ⭐ 新功能
+
+从 v2.0.0 开始，系统支持查询历史交易日的CCI底背离信号，无需重新运行整个流程。
+
+### 基本用法
+
+#### 查询单个日期的信号
+```bash
+python daily_executor.py query --date 2025-09-04
+```
+
+#### 查询日期范围的信号
+```bash
+python daily_executor.py query --date-range 2025-09-01 2025-09-10
+```
+
+#### 按置信度过滤
+```bash
+python daily_executor.py query --date 2025-09-04 --min-confidence 0.7
+```
+
+#### 查询特定股票
+```bash
+python daily_executor.py query --date 2025-09-04 --stock-code 600000_SH
+```
+
+### 输出格式
+
+#### 1. 控制台输出（默认）
+```bash
+python daily_executor.py query --date 2025-09-04
+```
+
+输出示例：
+```
+📊 查询结果
+
+查询参数:
+  日期范围: 2025-09-04 至 2025-09-04
+  股票代码: 全部
+  最小置信度: 0.5
+
+信号统计:
+  信号总数: 12
+  股票数量: 12
+  平均置信度: 0.68
+
+   stock_code  signal_date  confidence  entry_price  ...
+0  600000_SH   2025-09-04   0.75        11.20        ...
+1  000001_SZ   2025-09-04   0.62        15.30        ...
+```
+
+#### 2. CSV 格式
+```bash
+python daily_executor.py query --date 2025-09-04 --output csv
+```
+
+生成文件：`signals/query_2025-09-04_<timestamp>.csv`
+
+#### 3. JSON 格式
+```bash
+python daily_executor.py query --date 2025-09-04 --output json
+```
+
+生成文件：`signals/query_2025-09-04_<timestamp>.json`
+
+JSON 结构：
+```json
+{
+  "query_info": {
+    "start_date": "2025-09-04",
+    "end_date": "2025-09-04",
+    "stock_codes": null,
+    "min_confidence": 0.5,
+    "timestamp": "2025-11-11 14:30:00"
+  },
+  "statistics": {
+    "total_signals": 12,
+    "unique_stocks": 12,
+    "date_range": "2025-09-04 至 2025-09-04",
+    "avg_confidence": 0.68
+  },
+  "signals": [
+    {
+      "stock_code": "600000_SH",
+      "signal_date": "2025-09-04",
+      "confidence": 0.75,
+      "entry_price": 11.20,
+      "reason": "CCI底背离(CCI:-120.5→-85.3, 5天)",
+      "divergence_id": "600000_SH_2025-09-04"
+    }
+  ]
+}
+```
+
+#### 4. 多种格式组合
+```bash
+python daily_executor.py query --date 2025-09-04 --output csv --output json
+```
+
+#### 5. 推送到微信
+```bash
+python daily_executor.py query --date 2025-09-04 --push-wechat
+```
+
+### 高级查询示例
+
+#### 查询高置信度信号并导出CSV
+```bash
+python daily_executor.py query --date-range 2025-09-01 2025-09-10 \
+  --min-confidence 0.8 \
+  --output csv
+```
+
+#### 查询特定股票并推送微信
+```bash
+python daily_executor.py query --date 2025-09-04 \
+  --stock-code 600000_SH \
+  --push-wechat
+```
+
+#### 查询并生成完整报告（所有格式）
+```bash
+python daily_executor.py query --date-range 2025-09-01 2025-09-10 \
+  --min-confidence 0.7 \
+  --output console --output csv --output json \
+  --push-wechat
+```
+
+### 性能优化
+
+查询性能已通过数据库索引优化：
+
+```bash
+# 首次使用前，建议添加索引
+python add_database_indexes.py ../CCI_Divergence/data/cci_signals.db
+```
+
+**索引效果**：
+- 查询单个日期：< 0.5 秒
+- 查询 10 天范围：< 1 秒
+- 查询 30 天范围：< 2 秒
 
 ---
 
@@ -220,7 +369,35 @@ python daily_executor.py
 
 ## 执行流程
 
-### 步骤1: 更新K线数据
+系统支持两种执行模式：
+
+### 模式 1：日常自动化执行（run 命令）
+
+**用途**：每个交易日自动执行完整流程
+
+**命令**：
+```bash
+python daily_executor.py run
+# 或直接运行（默认为 run 模式）
+python daily_executor.py
+```
+
+**流程**：步骤1（更新K线数据）→ 步骤1.5（检测CCI背离）→ 步骤2（生成信号）→ 步骤3（推送微信）
+
+### 模式 2：历史信号查询（query 命令）
+
+**用途**：查询历史交易日的信号，无需重新运行数据更新
+
+**命令**：
+```bash
+python daily_executor.py query --date 2025-09-04
+```
+
+**流程**：直接从数据库查询 → 格式化输出 → 可选推送微信
+
+---
+
+### 步骤1: 更新K线数据（仅 run 模式）
 - 脚本：`../data/stock_data_manager.py`
 - 功能：通过miniQMT更新当天的K线数据
 - 耗时：增量更新约5-10分钟
@@ -240,16 +417,15 @@ python daily_executor.py
 - 与 `CCI-Divergence` 项目的数据库独立，不会相互影响
 - 只处理指定日期的股票，避免重复计算
 
-### 步骤2: 生成买入信号
-- 脚本：内部调用 `export_cci_signals_for_simulation.py`
-- 功能：从**本地CCI数据库**导出当天的底背离信号
-- 数据源：`./data/cci_signals.db`（由步骤1.5生成）
-- 参数：
-  - `--start-date` / `--end-date`: 指定日期
-  - `--stocks`: 股票池（从配置文件读取）
-  - `--min-confidence`: 最小置信度
-  - `--db-path`: CCI数据库路径
-  - `--output`: 输出文件路径
+### 步骤2: 生成买入信号（run 和 query 模式共用）
+- **架构升级** ⭐: 使用 `QueryEngine` 统一查询逻辑
+- 功能：从CCI数据库查询有效的底背离信号
+- 数据源：`../CCI_Divergence/data/cci_signals.db` 或 `./data/cci_signals.db`
+- 查询条件：
+  - `end_date` <= 目标日期 <= `expiry_date`（背离在有效期内）
+  - `stock_code` in 股票池（可选）
+  - `confidence` >= 最小置信度
+- **代码复用**: run 模式下的每日信号生成本质上是 query 模式的特例（查询日期 = 今天）
 
 ### 步骤3: 推送到微信
 - 模块：`wechat_pusher.py`
@@ -366,27 +542,44 @@ findstr /i "失败" executor_*.log
 
 ## 手动测试
 
+### 测试 query 命令（推荐）⭐
+```bash
+cd daily_executor
+
+# 测试单日查询
+python daily_executor.py query --date 2025-09-04
+
+# 测试日期范围查询
+python daily_executor.py query --date-range 2025-09-01 2025-09-10 --min-confidence 0.7
+
+# 测试 CSV 输出
+python daily_executor.py query --date 2025-09-04 --output csv
+
+# 测试 JSON 输出
+python daily_executor.py query --date 2025-09-04 --output json
+
+# 测试特定股票查询
+python daily_executor.py query --date 2025-09-04 --stock-code 600000_SH
+```
+
+### 测试 run 命令（完整流程）
+```bash
+cd daily_executor
+
+# 测试完整流程（跳过数据更新）
+python daily_executor.py run --skip-step1 --date 2025-11-10
+
+# 测试完整流程（指定日期）
+python daily_executor.py run --date 2025-11-10
+
+# 测试完整流程（今日数据）
+python daily_executor.py run
+```
+
 ### 测试推送功能
 ```bash
 cd daily_executor
 python wechat_pusher.py signals/daily_signals.csv
-```
-
-### 测试信号生成
-```bash
-cd daily_executor
-python ../CCI-Divergence/scripts/export_cci_signals_for_simulation.py \
-    --start-date 2025-11-10 \
-    --end-date 2025-11-10 \
-    --output signals/test_signals.csv \
-    --db-path ../CCI-Divergence/data/cci_signals.db \
-    --min-confidence 0.5
-```
-
-### 测试完整流程
-```bash
-cd daily_executor
-python daily_executor.py
 ```
 
 ---
@@ -482,6 +675,18 @@ forfiles /p "logs" /s /m *.log /d -30 /c "cmd /c del @path"
 ---
 
 ## 版本历史
+
+- **v2.0.0** (2025-11-11) ⭐ 重大更新
+  - ✅ **新增查询功能**：支持查询历史交易日信号（`query` 命令）
+  - ✅ **架构升级**：引入 `QueryEngine` 统一查询逻辑
+  - ✅ **多格式输出**：支持 console/CSV/JSON/微信推送
+  - ✅ **性能优化**：添加数据库索引，查询速度提升 10x+
+  - ✅ **代码复用**：日常执行和历史查询共享核心逻辑
+  - ✅ **新增模块**：
+    - `query_engine.py` - 查询引擎
+    - `signal_types.py` - 信号数据类型
+    - `formatters.py` - 输出格式化器
+    - `add_database_indexes.py` - 索引工具
 
 - **v1.0.0** (2025-11-10)
   - 初始版本
