@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(tree:*)",
+      "Bash(python daily_executor.py:*)",
+      "Bash(conda run:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
