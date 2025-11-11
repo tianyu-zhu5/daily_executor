@@ -3,14 +3,16 @@
 自动化推送脚本 - 每日执行器
 
 功能：
-1. 更新K线数据（运行 stock_data_manager.py）
-2. 生成当天买入信号（运行 export_cci_signals_for_simulation.py）
+1. 更新CCI底背离数据（扫描K线数据，检测底背离信号）
+2. 生成当天买入信号（从数据库读取信号）
 3. 推送信号到微信（通过 wechat_pusher.py）
 
 执行时间：每个交易日16:00（通过Windows计划任务）
 
+注意：K线数据需要在其他地方单独更新（如 stock_data_manager.py）
+
 Author: Daily Executor System
-Date: 2025-11-10
+Date: 2025-11-11
 """
 
 import sys
@@ -256,50 +258,19 @@ class DailyExecutor:
             self.logger.error(f"读取股票池文件失败: {e}")
             return None
 
-    def step1_update_kline_data(self) -> bool:
+    def step1_update_cci_divergence(self, custom_date: str = None, all_stocks: bool = False) -> bool:
         """
-        步骤1: 更新K线数据
-
-        Returns:
-            是否成功
-        """
-        self.logger.info("=" * 80)
-        self.logger.info("步骤1: 更新K线数据")
-        self.logger.info("=" * 80)
-
-        script_path = Path(self.config['data_update']['script_path'])
-        timeout = self.config['data_update']['timeout_seconds']
-
-        # 检查脚本是否存在
-        if not script_path.exists():
-            self.logger.error(f"数据更新脚本不存在: {script_path}")
-            return False
-
-        # 运行脚本（使用conda quant环境）
-        command = ['conda', 'run', '-n', 'quant', 'python', script_path.name]
-        cwd = script_path.parent
-
-        success = self._run_subprocess(
-            command=command,
-            cwd=cwd,
-            timeout=timeout,
-            step_name="更新K线数据"
-        )
-
-        return success
-
-    def step1_5_update_cci_divergence(self, custom_date: str = None) -> bool:
-        """
-        步骤1.5: 更新CCI底背离数据
+        步骤1: 更新CCI底背离数据
 
         Args:
             custom_date: 自定义日期 (YYYY-MM-DD 格式)
+            all_stocks: 是否处理所有股票（忽略股票池配置）
 
         Returns:
             是否成功
         """
         self.logger.info("=" * 80)
-        self.logger.info("步骤1.5: 更新CCI底背离数据")
+        self.logger.info("步骤1: 更新CCI底背离数据")
         self.logger.info("=" * 80)
 
         try:
@@ -319,17 +290,22 @@ class DailyExecutor:
         self.logger.info(f"目标日期: {target_date}")
 
         # 读取股票池
-        stock_pool_file = signal_config.get('stock_pool_file')
-        if not stock_pool_file:
-            self.logger.warning("未配置股票池，将处理所有股票")
+        stock_codes = None
+        if all_stocks:
+            self.logger.info("模式: 处理所有股票（忽略股票池）")
             stock_codes = None
         else:
-            stock_list_str = self._read_stock_pool(stock_pool_file)
-            if stock_list_str is None:
-                self.logger.error("读取股票池失败")
-                return False
-            stock_codes = stock_list_str.split(',')
-            self.logger.info(f"股票池: {len(stock_codes)} 只股票")
+            stock_pool_file = signal_config.get('stock_pool_file')
+            if not stock_pool_file:
+                self.logger.warning("未配置股票池，将处理所有股票")
+                stock_codes = None
+            else:
+                stock_list_str = self._read_stock_pool(stock_pool_file)
+                if stock_list_str is None:
+                    self.logger.error("读取股票池失败")
+                    return False
+                stock_codes = stock_list_str.split(',')
+                self.logger.info(f"股票池: {len(stock_codes)} 只股票")
 
         # 初始化生成器和数据库
         generator = CCIDivergenceGenerator(
@@ -507,7 +483,7 @@ class DailyExecutor:
 
         return True
 
-    def step2_generate_signals(self, custom_date: str = None) -> bool:
+    def step2_generate_signals(self, custom_date: str = None, all_stocks: bool = False) -> bool:
         """
         步骤2: 生成买入信号
 
@@ -516,6 +492,7 @@ class DailyExecutor:
 
         Args:
             custom_date: 自定义日期 (YYYY-MM-DD 格式)
+            all_stocks: 是否处理所有股票（忽略股票池配置）
 
         Returns:
             是否成功
@@ -533,13 +510,18 @@ class DailyExecutor:
         try:
             # 读取股票池
             stock_codes = None
-            if config.get('stock_pool_file'):
+            if all_stocks:
+                self.logger.info("模式: 生成所有股票的信号（忽略股票池）")
+                stock_codes = None
+            elif config.get('stock_pool_file'):
                 stock_list_str = self._read_stock_pool(config['stock_pool_file'])
                 if stock_list_str:
                     stock_codes = stock_list_str.split(',')
                     self.logger.info(f"股票池: {len(stock_codes)} 只股票")
                 else:
                     self.logger.warning("未指定股票池，将生成所有股票的信号")
+            else:
+                self.logger.warning("未指定股票池，将生成所有股票的信号")
 
             # Initialize QueryEngine
             query_engine = QueryEngine(
@@ -612,13 +594,14 @@ class DailyExecutor:
             self.logger.error(traceback.format_exc())
             return False
 
-    def execute(self, skip_steps: list = None, custom_date: str = None) -> bool:
+    def execute(self, skip_steps: list = None, custom_date: str = None, all_stocks: bool = False) -> bool:
         """
         执行完整流程
 
         Args:
             skip_steps: 要跳过的步骤列表，例如 ['step1', 'step3']
             custom_date: 自定义日期 (YYYY-MM-DD 格式)，用于测试历史日期
+            all_stocks: 是否处理所有股票（忽略股票池配置）
 
         Returns:
             是否全部成功
@@ -630,6 +613,8 @@ class DailyExecutor:
         self.logger.info(f"执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         if custom_date:
             self.logger.info(f"测试日期: {custom_date}")
+        if all_stocks:
+            self.logger.info("模式: 处理所有股票")
         if skip_steps:
             self.logger.info(f"跳过步骤: {', '.join(skip_steps)}")
         self.logger.info("=" * 80)
@@ -637,27 +622,19 @@ class DailyExecutor:
         start_time = datetime.now()
 
         try:
-            # 步骤1: 更新K线数据
+            # 步骤1: 更新CCI底背离数据
             if 'step1' in skip_steps:
-                self.logger.info("跳过步骤1: 更新K线数据")
+                self.logger.info("跳过步骤1: 更新CCI底背离数据")
             else:
-                if not self.step1_update_kline_data():
+                if not self.step1_update_cci_divergence(custom_date=custom_date, all_stocks=all_stocks):
                     self.logger.error("步骤1失败，停止执行")
-                    return False
-
-            # 步骤1.5: 更新CCI底背离数据
-            if 'step1.5' in skip_steps or 'step1_5' in skip_steps:
-                self.logger.info("跳过步骤1.5: 更新CCI底背离数据")
-            else:
-                if not self.step1_5_update_cci_divergence(custom_date=custom_date):
-                    self.logger.error("步骤1.5失败，停止执行")
                     return False
 
             # 步骤2: 生成买入信号
             if 'step2' in skip_steps:
                 self.logger.info("跳过步骤2: 生成买入信号")
             else:
-                if not self.step2_generate_signals(custom_date=custom_date):
+                if not self.step2_generate_signals(custom_date=custom_date, all_stocks=all_stocks):
                     self.logger.error("步骤2失败，停止执行")
                     return False
 
@@ -717,28 +694,24 @@ def main():
   # 完整执行所有步骤
   python daily_executor.py run
 
-  # 跳过K线数据更新
+  # 跳过CCI底背离数据更新
   python daily_executor.py run --skip-step1
 
   # 测试模式（不推送）
   python daily_executor.py run --dry-run
 
   # 指定历史日期测试
-  python daily_executor.py run --date 2025-11-06 --skip-step1
+  python daily_executor.py run --date 2025-11-06
+
+  # 处理全部股票（忽略股票池）
+  python daily_executor.py run --all-stocks --dry-run
         """
     )
 
     run_parser.add_argument(
         '--skip-step1',
         action='store_true',
-        help='跳过步骤1: 更新K线数据'
-    )
-
-    run_parser.add_argument(
-        '--skip-step1.5',
-        action='store_true',
-        dest='skip_step1_5',
-        help='跳过步骤1.5: 更新CCI底背离数据'
+        help='跳过步骤1: 更新CCI底背离数据'
     )
 
     run_parser.add_argument(
@@ -763,6 +736,12 @@ def main():
         '--date', '-d',
         type=str,
         help='指定日期 (YYYY-MM-DD)'
+    )
+
+    run_parser.add_argument(
+        '--all-stocks',
+        action='store_true',
+        help='处理所有股票（忽略股票池配置）'
     )
 
     # ============================================================================
@@ -850,11 +829,11 @@ def main():
         args.command = 'run'
         # 保留旧参数的向后兼容性
         args.skip_step1 = False
-        args.skip_step1_5 = False
         args.skip_step2 = False
         args.skip_step3 = False
         args.dry_run = False
         args.date = None
+        args.all_stocks = False
 
     try:
         if args.command == 'run':
@@ -862,15 +841,13 @@ def main():
             skip_steps = []
             if args.skip_step1:
                 skip_steps.append('step1')
-            if args.skip_step1_5:
-                skip_steps.append('step1.5')
             if args.skip_step2:
                 skip_steps.append('step2')
             if args.skip_step3 or args.dry_run:
                 skip_steps.append('step3')
 
             executor = DailyExecutor(config_file=args.config)
-            success = executor.execute(skip_steps=skip_steps, custom_date=args.date)
+            success = executor.execute(skip_steps=skip_steps, custom_date=args.date, all_stocks=args.all_stocks)
             sys.exit(0 if success else 1)
 
         elif args.command == 'query':

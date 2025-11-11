@@ -21,7 +21,7 @@
   "signal_generation": {
     "description": "信号生成配置",
     "db_path": "../CCI-Divergence/data/cci_signals.db",
-    "data_dir": "../CCI-Divergence/data/daily",
+    "data_dir": "../data/daily",
     "stock_pool_file": "../CCI-Divergence/stock_pools/hs300.txt",
     "output_file": "./signals/daily_signals.csv",
     "min_confidence": 0.1,
@@ -31,7 +31,7 @@
   "cci_update": {
     "description": "CCI底背离更新配置",
     "local_db_path": "../CCI-Divergence/data/cci_signals.db",
-    "data_dir": "../CCI-Divergence/data/daily",
+    "data_dir": "../data/daily",
     "cci_period": 20,
     "pivot_window": 10,
     "divergence_validity_days": 20,
